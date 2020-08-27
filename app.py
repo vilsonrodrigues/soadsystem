@@ -9,6 +9,7 @@ import altair as alt
 #--------------------------0.0 funções -------------------------------------
 
 
+
 #----------0.1 funcoes para carregar os dados para a aplicacao ---------
 #@st.cache
 def get_df_treino():
@@ -144,7 +145,28 @@ def concatenaMediaAproRepro(df_historico):
 
 	return df	
 
+def taxaSucessoNaDisciplina(df_treino, codigo):
+	df_cursadas = df_treino.groupby(by=['codigo','semestreAtual'])['situacao'].count().reset_index()
+	df_cursadas.rename(columns = {'situacao':'total'},inplace=True)
+	df_cursadas = df_cursadas.loc[df_cursadas['codigo'].str.contains(codigo)]		
+	df_cursadas.sort_values(by='semestreAtual',inplace=True)
+
+	df_aprovados = df_treino.loc[df_treino['codigo'].str.contains(codigo) & df_treino['situacao'].str.contains('APROVADO'),
+		                    ['codigo','semestreAtual','situacao']]		
+	df_aprovados = df_aprovados.groupby(by=['codigo','semestreAtual'])['situacao'].count().reset_index()
+	df_aprovados.rename(columns = {'situacao':'aprovados'},inplace=True)		
+	df_aprovados.sort_values(by='semestreAtual',inplace=True)
+
+	df = pd.merge(df_cursadas,df_aprovados, on=['codigo','semestreAtual'])
+	df.fillna(0)
+
+	df['taxa'] = np.divide(df['aprovados'],df['total'])
+
+	return df
+
+
 def main():
+
 	#-----------------------1.0 página inicial ----------------------------------
 	st.markdown('## **SISTEMA DE ORIENTAÇÃO ACADÊMICA - SOAD**')
 	st.sidebar.title('Painel de Atributos do SOAD')
@@ -159,10 +181,16 @@ def main():
 	df_relatorio = get_df_relatorio()
 
 
+	#---------------------- 2.2 checkbox para verificar se é docente------------
 
-	#@st.cache(ignore_hash=True)
+	#se for professor, deixar digitar a senha
+	if st.sidebar.checkbox('Você é docente da UFRN?'):
+		senha = st.sidebar.text_input('Digite a sua senha', type = 'password')
+	else:
+		senha = ''
 
-	#---------------------- 2.2 seleciona departamento -----------------------
+
+	#------------------------ 2.3 seleciona departamento -----------------------
 
 	#selecionando departamentos da universidade
 	departamentos = get_departamentos(df_treino)
@@ -190,123 +218,133 @@ def main():
 	else:
 		matriculas = []	
 
-	matricula = st.sidebar.text_input('Digite a matricula do estudante')
-
+	#se a senha do professor estiver correta, deixa digitar a matricula
+	if senha == 'teamlab':
+		matricula = st.sidebar.text_input('Digite a matricula do estudante')
+	#acessa os dados do aluno
 
 
 	#---------------------- 2.5 submissão das consultas -----------------
 	#botao para submissão da disciplina selecionada
 	if st.sidebar.button('Submeter'):
 		try:
-
 			st.sidebar.success('Submissão realizada com sucesso')
 			codigo = disciplina_selecionada
 			st.markdown('## Dashboard')
 			st.markdown('')
-
+			
 			#----------------------------------------------
 			#dados do grafico taxa de sucesso na disciplina
-			df_graph = df_treino.groupby(by=['codigo','semestrePassado']).mean()['taxaDeSucesso'].reset_index()
-			df_graph = df_graph.loc[df_graph['codigo'].str.contains(codigo)]		
-			df_graph['semestrePassado'] = df_graph['semestrePassado'].astype(str)
 
+			df_graph = taxaSucessoNaDisciplina(df_treino, codigo)	
+			df_graph['semestreAtual'] = df_graph['semestreAtual'].astype(str)
 			#grafico
-			a = alt.Chart(df_graph).mark_area().encode(
-				x=alt.X('semestrePassado', axis=alt.Axis(title='Semestre')),
-				y=alt.Y('taxaDeSucesso', axis=alt.Axis(format='%', 
-					title='Taxa Média de Sucesso na disciplina')),
+			st.subheader('Taxa de Sucesso em '+codigo+' por Semestre') 
+			a = alt.Chart(df_graph).mark_area(clip = True).encode(
+				x=alt.X('semestreAtual', axis=alt.Axis(title='Semestre')),
+				y=alt.Y('taxa', scale=alt.Scale(domain=(0,1)),axis=alt.Axis(format='%', 
+					title='Taxa de Sucesso'))
 	    	).configure_mark(
 			    opacity=0.6,
 			    color='purple'
 			)
 			st.altair_chart(a, use_container_width=True)
 
+			if matricula:
 
-			#----------------- dados do historico do aluno ------------------
+				#----------------- dados do historico do aluno ------------------
 
-			df_historico = get_dados_estudante(df_predict, matricula)
-
-
-
-
-			#------------------taxa de sucesso do aluno por semestre
-
-			b = alt.Chart(df_historico).mark_bar().encode(
-				x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
-				y=alt.Y('Taxa de Sucesso', 
-					axis=alt.Axis(format='%',title='Taxa de Sucesso nas Disciplinas')),
-	    	).configure_mark(
-			    opacity=0.6,
-			    color='#ff4d4d'
-			)
-			st.altair_chart(b, use_container_width=True)
+				df_historico = get_dados_estudante(df_predict, matricula)
 
 
-			#-----------Comparação das Notas---------------
-			df_notas = concatenaMediaMaiorMenor(df_historico)
-			d = alt.Chart(df_notas).mark_area().encode(
-			    x='Semestre',
-			    y='Quantidade',
-			    color='Campo',
-			    row='Campo'
-			).properties(
-			    height=100
-			)
-			st.altair_chart(d, use_container_width=True)
+				#------------------taxa de sucesso do aluno por semestre
+				st.subheader('Taxa de Sucesso do Estudante por Semestre')
+				b = alt.Chart(df_historico).mark_bar().encode(
+					x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
+					y=alt.Y('Taxa de Sucesso',scale=alt.Scale(domain=(0,1)), 
+						axis=alt.Axis(format='%')),
+		    	).configure_mark(
+				    opacity=0.6,
+				    color='#ff4d4d'
+				)
+				st.altair_chart(b, use_container_width=True)
+
+
+				#-----------Comparação das Notas---------------
+				df_notas = concatenaMediaMaiorMenor(df_historico)
+				st.subheader('Notas: Maior, Menor e Média, por Semestre')
+				d = alt.Chart(df_notas).mark_area(opacity = 0.7).encode(
+				    x='Semestre',
+				    y=alt.Y('Quantidade',axis=alt.Axis(title=''),scale=alt.Scale(domain=(0,10))),
+				    color=alt.Color('Campo', scale=alt.Scale(scheme='category20c'), 
+				    	  legend=alt.Legend(title='Categorias',orient='bottom')),
+				    row='Campo'
+				).properties(
+				    height=100
+				)
+				st.altair_chart(d, use_container_width=True)
+
+
+				
+				#----------Quantidade de Disciplinas por Semestre-------------
+				
+				df_quant = concatenaDisciplinasTotalAprovacaoReprovacao(df_historico)
+				st.subheader('Disciplinas Cursadas vs. Reprovações por Semestre')
+				c = alt.Chart(df_quant).mark_area(opacity = 0.7).encode(
+							x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
+							y=alt.Y('Quantidade', axis=alt.Axis(title='Quantidades'),stack=None),
+							color=alt.Color('Campo', scale=alt.Scale(scheme='greens'), 
+				    	 	      legend=alt.Legend(title='Categorias',orient='bottom'))).properties(
+				width=200,height=400)
+				st.altair_chart(c, use_container_width=True)
+
+
+				#-----------Comparação das Notas---------------
+				df_media_apro_repro = concatenaMediaAproRepro(df_historico)
+				st.subheader('Média das Disciplinas Aprovadas e Reprovadas por Semestre')
+				d = alt.Chart(df_media_apro_repro).mark_area(opacity = 0.7).encode(
+				    x='Semestre',
+				    y=alt.Y('Quantidade',axis=alt.Axis(title=''),scale=alt.Scale(domain=(0,10))),
+					color=alt.Color('Campo', scale=alt.Scale(scheme='dark2'), 
+									 legend=alt.Legend(title='Categorias',orient='bottom')),
+				    row='Campo'
+				).properties(
+				width=200,height=150)
+				
+				st.altair_chart(d, use_container_width=True)
 
 
 
-			#----------Quantidade de Disciplinas por Semestre-------------
-			
-			df_quant = concatenaDisciplinasTotalAprovacaoReprovacao(df_historico)
-			c = alt.Chart(df_quant).mark_area(opacity = 0.3).encode(
-						x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
-						y=alt.Y('Quantidade', axis=alt.Axis(title='Quantidades'),stack=None),
-						color = 'Campo')
-			st.altair_chart(c, use_container_width=True)
-
-
-			#-----------Comparação das Notas---------------
-			df_media_apro_repro = concatenaMediaAproRepro(df_historico)
-			d = alt.Chart(df_media_apro_repro).mark_area().encode(
-			    x='Semestre',
-			    y='Quantidade',
-			    color='Campo',
-			    row='Campo'
-			).properties(
-			    height=100
-			)
-			st.altair_chart(d, use_container_width=True)
-
-
-
-			#---------------- Carga Horaria ------------------
-			f = alt.Chart(df_historico).mark_bar().encode(
-				x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
-				y=alt.Y('Carga Horária', 
-					axis=alt.Axis(title='Carga Horária')),
-	    	).configure_mark(
-			    opacity=0.7,
-			    color='#00ffcc'
-			)
-			st.altair_chart(f, use_container_width=True)
-
-
+				#---------------- Carga Horaria ------------------
+				st.subheader('Carga Horária do Estudante por Semestre')
+				f = alt.Chart(df_historico).mark_bar().encode(
+					x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
+					y=alt.Y('Carga Horária', 
+						axis=alt.Axis(title='Carga Horária(H)')),
+		    	).configure_mark(
+				    opacity=0.8,
+				    color='#FCBE37'
+				)
+				st.altair_chart(f, use_container_width=True)
 
 			
 		except:
-			st.warning('Algo deu errado, tente novamente')
+			pass
 
 	else: 
 		st.markdown('### Seja bem vindo ao SOAD!')
 		st.markdown('')
 		st.markdown('#### Para utilizar o SOAD siga os passos a seguir:')
 		st.markdown('')
+		st.markdown('* Se você for docente da UFRN, marque caixa de seleção')
+		st.markdown('* Insira a senha de Acesso')
 		st.markdown('* Selecione um departamento')
 		st.markdown('* Selecione uma disciplina')
-		st.markdown('* Digite a matrícula do estudante')
+		st.markdown('* Caso docente, digite a matrícula do estudante')
 		st.markdown('* Clique no botão de submissão')
 
 
-if __name__ == 'main':
+
+if __name__ == '__main__':
 	main()
+
