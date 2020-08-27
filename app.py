@@ -263,7 +263,7 @@ def main():
 					x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
 					y=alt.Y('Taxa de Sucesso',scale=alt.Scale(domain=(0,1)), 
 						axis=alt.Axis(format='%')),
-		    	).configure_mark(
+		    		).configure_mark(
 				    opacity=0.6,
 				    color='#ff4d4d'
 				)
@@ -321,7 +321,7 @@ def main():
 					x=alt.X('Semestre', axis=alt.Axis(title='Semestre')),
 					y=alt.Y('Carga Horária', 
 						axis=alt.Axis(title='Carga Horária(H)')),
-		    	).configure_mark(
+		    		).configure_mark(
 				    opacity=0.8,
 				    color='#FCBE37'
 				)
